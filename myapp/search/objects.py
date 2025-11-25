@@ -21,6 +21,8 @@ class Document(BaseModel):
     average_rating: Optional[float] = None
     url: Optional[str] = None
     images: Optional[List[str]] = None
+    title_tokens: Optional[List[str]] = None
+    desc_tokens: Optional[List[str]] = None
 
     def to_json(self):
         return self.model_dump_json()

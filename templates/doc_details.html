@@ -1,21 +1,92 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "base.html" %}
+{% block page_title %}{{ doc.title }}{% endblock %}
 
-<head>
-    <meta charset="UTF-8">
-    <title>Document Detail - IRWA Search Engine</title>
-</head>
+{% block content %}
 
-<body>
-    <div><a href="/">Home</a></div>
-    <div><a href="/stats">Stats</a></div>
-    <div><a href="/dashboard">Dashboard</a></div>
-    <h1>Document Detail Page</h1>
-    <p>This is a placeholder for document details.</p>
-    <p>Here you can display more information about the document.</p>
-    <p>For example, you might show the full text of the document, metadata, or other relevant details.</p>
-    <p>You can also include links to related documents or resources.</p>
-    <p>Feel free to customize this page to fit the needs of your application.</p>
-</body>
+<h2 class="mb-4">{{ doc.title }}</h2>
 
-</html>
+<div class="row">
+
+    <!-- Image -->
+    <div class="col-md-5">
+        {% if doc.images and doc.images|length > 0 %}
+        <img src="{{ doc.images[0] }}" alt="{{ doc.title }}" class="img-fluid rounded border">
+        {% else %}
+        <div class="text-muted">No image available.</div>
+        {% endif %}
+    </div>
+
+    <!-- Product Fields -->
+    <div class="col-md-7">
+        <h4>Product Information</h4>
+        <ul class="list-group mb-4">
+
+            <li class="list-group-item"><strong>PID:</strong> {{ doc.pid }}</li>
+
+            {% if doc.description %}
+            <li class="list-group-item"><strong>Description:</strong> {{ doc.description }}</li>
+            {% endif %}
+
+            {% if doc.brand %}
+            <li class="list-group-item"><strong>Brand:</strong> {{ doc.brand }}</li>
+            {% endif %}
+
+            {% if doc.category %}
+            <li class="list-group-item"><strong>Category:</strong> {{ doc.category }}</li>
+            {% endif %}
+
+            {% if doc.sub_category %}
+            <li class="list-group-item"><strong>Subcategory:</strong> {{ doc.sub_category }}</li>
+            {% endif %}
+
+            {% if doc.seller %}
+            <li class="list-group-item"><strong>Seller:</strong> {{ doc.seller }}</li>
+            {% endif %}
+
+            {% if doc.selling_price %}
+            <li class="list-group-item"><strong>Selling Price:</strong> {{ doc.selling_price }} €</li>
+            {% endif %}
+
+            {% if doc.actual_price %}
+            <li class="list-group-item"><strong>Actual Price:</strong> {{ doc.actual_price }} €</li>
+            {% endif %}
+
+            {% if doc.discount %}
+            <li class="list-group-item"><strong>Discount:</strong> {{ doc.discount }} %</li>
+            {% endif %}
+
+            {% if doc.average_rating %}
+            <li class="list-group-item"><strong>Average Rating:</strong> {{ doc.average_rating }} ⭐</li>
+            {% endif %}
+
+            <li class="list-group-item">
+                <strong>Status:</strong>
+                {% if doc.out_of_stock %}
+                <span class="text-danger">Out of stock</span>
+                {% else %}
+                <span class="text-success">Available</span>
+                {% endif %}
+            </li>
+
+            {% if doc.url %}
+            <li class="list-group-item">
+                <strong>Original Website:</strong>
+                <a href="{{ doc.url }}" target="_blank">See Product</a>
+            </li>
+            {% endif %}
+
+        </ul>
+    </div>
+</div>
+
+{% if doc.product_details %}
+<h4>Additional Product Details</h4>
+<pre class="bg-light p-3 border rounded">{{ doc.product_details | tojson(indent=2) }}</pre>
+{% endif %}
+
+<div class="mt-4">
+    <a href="/" class="btn btn-primary">Back to Search</a>
+    <a href="/stats" class="btn btn-secondary">View Stats</a>
+</div>
+
+{% endblock %}

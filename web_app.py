@@ -99,36 +99,24 @@ def search_form_post():
 
 @app.route("/doc_details", methods=["GET"])
 def doc_details():
-    """
-    Show document details page
-    ### Replace with your custom logic ###
-    """
 
-    # getting request parameters:
-    # user = request.args.get('user')
-    print("doc details session: ")
-    print(session)
+    # 1. Get PID from URL
+    pid = request.args.get("pid")
+    if pid is None:
+        return "Error: missing PID parameter", 400
 
-    res = session["some_var"]
-    print("recovered var from session:", res)
+    # 2. Ensure PID exists in corpus
+    if pid not in corpus:
+        return f"Document with PID {pid} not found.", 404
 
-    # get the query string parameters from request
-    clicked_doc_id = request.args["pid"]
-    print("click in id={}".format(clicked_doc_id))
+    # 3. Fetch the full document object
+    doc = corpus[pid]
 
-    # store data in statistics table 1
-    if clicked_doc_id in analytics_data.fact_clicks.keys():
-        analytics_data.fact_clicks[clicked_doc_id] += 1
-    else:
-        analytics_data.fact_clicks[clicked_doc_id] = 1
+    # 4. Update analytics
+    analytics_data.fact_clicks[pid] = analytics_data.fact_clicks.get(pid, 0) + 1
 
-    print(
-        "fact_clicks count for id={} is {}".format(
-            clicked_doc_id, analytics_data.fact_clicks[clicked_doc_id]
-        )
-    )
-    print(analytics_data.fact_clicks)
-    return render_template("doc_details.html")
+    # 5. Render template with the document
+    return render_template("doc_details.html", doc=doc, page_title=doc.title)
 
 
 @app.route("/stats", methods=["GET"])

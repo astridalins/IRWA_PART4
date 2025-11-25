@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block page_title %}{{ page_title }}{% endblock %}
+
 {% block content %}
-Found <strong>{{ found_counter }}</strong> results...
+<h4>Found <strong>{{ found_counter }}</strong> results</h4>
 <hr>
+
 {% if rag_response %}
 <div class="mb-4 p-3" style="border: 1px solid #ccc; border-radius: 5px; background-color: #f9f9f9;">
     <h5>AI-Generated Summary:</h5>
@@ -10,17 +12,53 @@ Found <strong>{{ found_counter }}</strong> results...
 </div>
 {% endif %}
 <hr>
+
 {% for item in results_list %}
-<div class="pb-3">
-    <div class="doc-title">
-        <a href="{{ item.url }}">{{ item.title }}...
+<div class="card mb-4 p-4 shadow-sm">
+
+    <!-- Title -->
+    <h3>
+        <a href="{{ item.url }}" style="text-decoration:none;">
+            {{ item.title }}
         </a>
+    </h3>
+
+    <!-- Description -->
+    <p class="text-muted">{{ item.description }}</p>
+
+    <!-- Metadata Row -->
+    <div class="row mb-3">
+
+        <div class="col-md-4">
+            <strong>Price:</strong>
+            € {{ item.selling_price if item.selling_price is not none else "N/A" }}
+        </div>
+
+        <div class="col-md-4">
+            <strong>Discount:</strong>
+            {{ item.discount if item.discount is not none else "N/A" }} %
+        </div>
+
+        <div class="col-md-4">
+            <strong>Rating:</strong>
+            {{ item.average_rating if item.average_rating is not none else "N/A" }}
+        </div>
+
     </div>
-    <div class="doc-desc">
-        {{ item.doc_date }} — {{ item.description }}
+
+    <!-- External URL (original product page) -->
+    {% if item.external_url %}
+    <p>
+        <a href="{{ item.external_url }}" target="_blank">View on original store</a>
+    </p>
+    {% endif %}
+
+    <!-- Ranking Score -->
+    <div class="text-center mt-3 p-2" style="background:#1ba6b2; color:white; font-size:1.3rem; border-radius:5px;">
+        <strong>Score: {{ item.ranking|round(3) }}</strong>
     </div>
 
 </div>
-
 {% endfor %}
+
 {% endblock %}

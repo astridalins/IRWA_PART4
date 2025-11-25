@@ -145,13 +145,20 @@ class SearchEngine:
         adapted = []
         for r in results:
             # Using ResultItem model (pydantic) is optional; templates accept dicts.
+            doc = corpus[r["pid"]]
             try:
                 ri = ResultItem(
-                    pid=r["pid"],
-                    title=r["title"],
-                    description=r["description"],
-                    url=f"/doc_details?pid={r['pid']}",
+                    pid=doc.pid,
+                    title=doc.title,
+                    description=doc.description,
+                    url=f"/doc_details?pid={doc.pid}",  # enlace interno
                     ranking=r.get("score"),
+                    # Campos extra para mostrar en results.html
+                    selling_price=doc.selling_price,
+                    discount=doc.discount,
+                    average_rating=doc.average_rating,
+                    # URL real del producto en la tienda original
+                    external_url=doc.url,
                 )
                 adapted.append(ri)
             except Exception:

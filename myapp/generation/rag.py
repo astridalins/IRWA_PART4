@@ -11,7 +11,7 @@ class RAGGenerator:
         You are an expert product advisor helping users choose the best option from retrieved e-commerce products.
 
         ## Instructions:
-        1. Identify the single best product that matches the user's request.
+        1. Identify the single best product using ALL the metadata provided (price, discount, rating, description, and retrieval score). Do NOT invent attributes that are not explicitly included in the metadata. Your justification MUST refer only to fields shown in the Retrieved Products section.
         2. Present the recommendation clearly in this format:
         - Best Product: [Product PID] [Product Name]
         - Why: [Explain in plain language why this product is the best fit, referring to specific attributes like price, features, quality, or fit to user’s needs.]
@@ -40,24 +40,53 @@ class RAGGenerator:
             dict: Contains the generated suggestion and the quality evaluation.
         """
         DEFAULT_ANSWER = "RAG is not available. Check your credentials (.env file) or account limits."
+
         try:
             client = Groq(
                 api_key=os.environ.get("GROQ_API_KEY"),
             )
             model_name = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
 
-            # Format the retrieved results for the prompt
+            # IMPROVEMENT 2 — ADAPTIVE FILTERING (simple relevance filter)
+
+            query_tokens = user_query.lower().split()
+
+            filtered_results = []
+            for res in retrieved_results:
+                title_tokens = str(res.title).lower().split()
+                # keep product if ANY query token appears in title
+                if any(t in title_tokens for t in query_tokens):
+                    filtered_results.append(res)
+
+            # fallback: if all results filtered out, keep originals
+            if not filtered_results:
+                filtered_results = retrieved_results
+
+            # IMPROVEMENT 1 — richer metadata for RAG input
+
             formatted_results = "\n".join(
                 [
-                    f"- PID: {res.pid}, Title: {res.title}"
-                    for res in retrieved_results[:top_N]
+                    (
+                        f"- PID: {res.pid}\n"
+                        f"  Title: {res.title}\n"
+                        f"  Description: {res.description}\n"
+                        f"  Price: {res.selling_price}\n"
+                        f"  Discount: {res.discount}\n"
+                        f"  Rating: {res.average_rating}\n"
+                        f"  Original URL: {res.external_url}\n"
+                        f"  Retrieval Score: {res.ranking}"
+                    )
+                    for res in filtered_results[:top_N]
                 ]
             )
 
+            # Build full prompt
             prompt = self.PROMPT_TEMPLATE.format(
-                retrieved_results=formatted_results, user_query=user_query
+                retrieved_results=formatted_results,
+                user_query=user_query,
             )
 
+            # Send to LLM
             chat_completion = client.chat.completions.create(
                 messages=[
                     {
@@ -70,6 +99,7 @@ class RAGGenerator:
 
             generation = chat_completion.choices[0].message.content
             return generation
+
         except Exception as e:
             print(f"Error during RAG generation: {e}")
             return DEFAULT_ANSWER

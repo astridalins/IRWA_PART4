@@ -1,5 +1,5 @@
 import pandas as pd
-
+import re
 from myapp.search.objects import Document
 from typing import List, Dict
 import json
@@ -16,53 +16,35 @@ from myapp.core.utils import clean_line
 
 def load_corpus(path) -> Dict[str, Document]:
     """
-    Load file and transform into dict(pid -> Document).
-    Adds title_tokens and desc_tokens so algorithms can index.
+    Public function.
+    Reads JSON file and returns corpus as dict(pid -> Document).
+    Internally calls _build_corpus().
     """
     df = pd.read_json(path)
-    corpus = {}
-
-    for _, row in df.iterrows():
-        data = row.to_dict()
-
-        # --- ADD TOKENIZATION ---
-        title = data.get("title", "")
-        desc = data.get("description", "")
-
-        data["title_tokens"] = clean_line(title)
-        data["desc_tokens"] = clean_line(desc)
-
-        doc = Document(**data)
-        corpus[doc.pid] = doc
-
-    return corpus
+    return _build_corpus(df)
 
 
 def _build_corpus(df: pd.DataFrame) -> Dict[str, Document]:
     """
-    Build corpus from dataframe.
-    Each row is converted into a Document (Pydantic model).
-    We also enrich the Document with:
-      - title_tokens
-      - desc_tokens
+    Internal corpus builder.
+    Converts each row into a Document object with:
+    - title_tokens
+    - desc_tokens
     """
     corpus = {}
 
     for _, row in df.iterrows():
         data = row.to_dict()
 
-        # Preprocess text BEFORE creating Document
-        title = data.get("title", "")
-        description = data.get("description", "")
+        # extract raw text
+        title = data.get("title", "") or ""
+        desc = data.get("description", "") or ""
 
-        title_tokens = clean_line(title)
-        desc_tokens = clean_line(description)
+        # tokenize using project-wide function
+        data["title_tokens"] = clean_line(title)
+        data["desc_tokens"] = clean_line(desc)
 
-        # Add tokens to the raw data so Document(**kwargs) accepts them
-        data["title_tokens"] = title_tokens
-        data["desc_tokens"] = desc_tokens
-
-        # Build the Pydantic object
+        # build the Document Pydantic model
         doc = Document(**data)
 
         corpus[doc.pid] = doc

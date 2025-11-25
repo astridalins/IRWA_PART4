@@ -1,10 +1,10 @@
-# myapp/search/algorithms.py
-
 import math
 from array import array
 from collections import defaultdict
+from myapp.core.utils import clean_line
 
 
+# Inverted Index
 def create_inverted_index(corpus: dict):
     """
     Input:
@@ -40,7 +40,7 @@ def create_inverted_index(corpus: dict):
     return inverted_index, doc_id_map, reverse_map
 
 
-# ---------- TF-IDF simple ----------
+# TF-IDF simple
 def rank_query_tf_idf(query: str, inverted_index, corpus, doc_id_map):
     N = len(doc_id_map)
     query_terms = query.lower().split()
@@ -60,10 +60,10 @@ def rank_query_tf_idf(query: str, inverted_index, corpus, doc_id_map):
     return ranked
 
 
-# ---------- TF-IDF + Cosine (AND semantics) ----------
+# TF-IDF + Cosine (AND semantics)
 def rank_query_tf_idf_cosine(query: str, inverted_index, corpus, doc_id_map):
     N = len(doc_id_map)
-    query_terms = query.lower().split()
+    query_terms = clean_line(query)
 
     df = {t: len(inverted_index.get(t, [])) for t in query_terms}
     idf = {t: math.log(N / df[t]) if df[t] > 0 else 0 for t in query_terms}
@@ -112,10 +112,10 @@ def rank_query_tf_idf_cosine(query: str, inverted_index, corpus, doc_id_map):
     return ranked
 
 
-# ---------- BM25 ----------
+# BM25
 def rank_query_bm25(query: str, inverted_index, corpus, doc_id_map, k1=1.5, b=0.75):
     N = len(doc_id_map)
-    query_terms = query.lower().split()
+    query_terms = clean_line(query)
 
     doc_lengths = {}
     for doc_id, pid in doc_id_map.items():
@@ -156,7 +156,7 @@ def rank_query_bm25(query: str, inverted_index, corpus, doc_id_map, k1=1.5, b=0.
     return ranked
 
 
-# ---------- Wrapper (función solicitada por el enunciado) ----------
+# High-level search function (called by SearchEngine)
 def search_in_corpus(
     query: str, algo: str, corpus: dict, inverted_index, doc_id_map, top_k: int = 20
 ):

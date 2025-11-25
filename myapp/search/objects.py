@@ -106,6 +106,11 @@ class ResultItem(BaseModel):
     description: Optional[str] = None
     url: Optional[str] = None
     ranking: Optional[float] = None
+    # extra fields to show in results.html
+    selling_price: float | None = None
+    discount: float | None = None
+    average_rating: float | None = None
+    external_url: str | None = None
 
     def __str__(self) -> str:
         return self.model_dump_json(indent=2)

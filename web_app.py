@@ -77,7 +77,8 @@ def search_form_post():
 
     search_id = analytics_data.save_query_terms(search_query)
 
-    results = search_engine.search(search_query, search_id, corpus)
+    algo = request.form.get("algo", "tfidf")
+    results = search_engine.search(search_query, search_id, corpus, algo=algo)
 
     # generate RAG response based on user query and retrieved results
     rag_response = rag_generator.generate_response(search_query, results)

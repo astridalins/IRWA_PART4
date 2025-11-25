@@ -150,7 +150,7 @@ class SearchEngine:
                     pid=r["pid"],
                     title=r["title"],
                     description=r["description"],
-                    url=r.get("url"),
+                    url=f"/doc_details?pid={r['pid']}",
                     ranking=r.get("score"),
                 )
                 adapted.append(ri)

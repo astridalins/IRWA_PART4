@@ -53,7 +53,10 @@ print("\nCorpus is loaded... \n First element:\n", list(corpus.values())[0])
 @app.route("/")
 def index():
     print("starting home url /...")
-
+    
+    # Track HTTP request
+    start_time = time.time()
+    
     # Track user session
     if 'session_id' not in session:
         user_agent = request.headers.get("User-Agent")
@@ -74,6 +77,19 @@ def index():
 
     user_ip = request.remote_addr
     agent = httpagentparser.detect(user_agent)
+    
+    # Track HTTP request
+    response_time = (time.time() - start_time) * 1000  # Convert to ms
+    analytics_data.track_http_request(
+        method="GET",
+        endpoint="/",
+        status_code=200,
+        response_time_ms=response_time,
+        session_id=session.get('session_id'),
+        user_agent=user_agent,
+        ip_address=user_ip,
+        referrer=request.referrer
+    )
 
     print("Remote IP: {} - JSON user browser {}".format(user_ip, agent))
     print("Session ID:", session.get('session_id'))
@@ -90,6 +106,11 @@ def search_form_post():
 
     # Get session ID for tracking
     session_id = session.get('session_id', 'anonymous')
+    user_agent = request.headers.get("User-Agent")
+    user_ip = request.remote_addr
+    
+    # Track HTTP request
+    start_time = time.time()
     
     # Track with new analytics system
     query_id = analytics_data.track_query(
@@ -102,10 +123,16 @@ def search_form_post():
     session['last_query_id'] = query_id
 
     algo = request.form.get("algo", "tfidf")
+    
+    # Time the search
+    search_start = time.time()
     results = search_engine.search(search_query, search_id, corpus, algo=algo)
-
-    # Update results count in analytics
+    search_time_ms = (time.time() - search_start) * 1000
+    
+    # Update the query with search time
     if query_id in analytics_data.queries:
+        analytics_data.queries[query_id].search_time_ms = search_time_ms
+        analytics_data.queries[query_id].algorithm_used = algo
         analytics_data.queries[query_id].results_returned = len(results)
 
     # generate RAG response based on user query and retrieved results
@@ -119,10 +146,22 @@ def search_form_post():
     mission_type = _detect_mission_type(search_query, results)
     analytics_data.set_mission_type(session_id, mission_type)
     
+    # Track HTTP request completion
+    response_time = (time.time() - start_time) * 1000
+    analytics_data.track_http_request(
+        method="POST",
+        endpoint="/search",
+        status_code=200,
+        response_time_ms=response_time,
+        session_id=session_id,
+        user_agent=user_agent,
+        ip_address=user_ip,
+        referrer=request.referrer
+    )
+    
     print(session)
 
     # Prepare results WITHOUT modifying objects directly
-    # Create a wrapper for each result that includes tracking info
     results_with_tracking = []
     for i, result in enumerate(results):
         # Create a wrapper object instead of modifying the original
@@ -158,6 +197,11 @@ def search_form_get():
     
     # Get session ID for tracking
     session_id = session.get('session_id', 'anonymous')
+    user_agent = request.headers.get("User-Agent")
+    user_ip = request.remote_addr
+    
+    # Track HTTP request
+    start_time = time.time()
     
     search_id = analytics_data.save_query_terms(search_query)
     
@@ -171,10 +215,16 @@ def search_form_get():
     session['last_query_id'] = query_id
     
     algo = request.args.get("algo", "tfidf")
-    results = search_engine.search(search_query, search_id, corpus, algo=algo)
     
-    # Update results count in analytics
+    # Time the search
+    search_start = time.time()
+    results = search_engine.search(search_query, search_id, corpus, algo=algo)
+    search_time_ms = (time.time() - search_start) * 1000
+    
+    # Update the query with search time
     if query_id in analytics_data.queries:
+        analytics_data.queries[query_id].search_time_ms = search_time_ms
+        analytics_data.queries[query_id].algorithm_used = algo
         analytics_data.queries[query_id].results_returned = len(results)
     
     rag_response = rag_generator.generate_response(search_query, results)
@@ -185,6 +235,19 @@ def search_form_get():
     # Track mission type based on query content
     mission_type = _detect_mission_type(search_query, results)
     analytics_data.set_mission_type(session_id, mission_type)
+    
+    # Track HTTP request completion
+    response_time = (time.time() - start_time) * 1000
+    analytics_data.track_http_request(
+        method="GET",
+        endpoint="/search",
+        status_code=200,
+        response_time_ms=response_time,
+        session_id=session_id,
+        user_agent=user_agent,
+        ip_address=user_ip,
+        referrer=request.referrer
+    )
     
     # Prepare results WITHOUT modifying objects directly
     results_with_tracking = []
@@ -213,6 +276,9 @@ def search_form_get():
 
 @app.route("/doc_details", methods=["GET"])
 def doc_details():
+    # Track HTTP request
+    start_time = time.time()
+    
     # 1. Get PID from URL
     pid = request.args.get("pid")
     if pid is None:
@@ -229,23 +295,44 @@ def doc_details():
     query_id = request.args.get("query_id") or session.get('last_query_id')
     ranking_position = request.args.get("ranking_position", 1, type=int)
     
-    # 5. Track the click
+    # 5. Get user context
+    session_id = session.get('session_id', 'anonymous')
+    user_agent = request.headers.get("User-Agent")
+    user_ip = request.remote_addr
+    
+    # 6. Track the click with user context
     if query_id:
         click_id = analytics_data.track_click(
             query_id=query_id,
             doc_id=pid,
             doc_title=doc.title,
-            ranking_position=ranking_position
+            ranking_position=ranking_position,
+            session_id=session_id,
+            user_agent=user_agent,
+            ip_address=user_ip
         )
         session['last_click_id'] = click_id
         
         # Start dwell time tracking
         analytics_data.start_dwell_time(click_id)
 
-    # 6. Update legacy analytics
+    # 7. Update legacy analytics
     analytics_data.fact_clicks[pid] = analytics_data.fact_clicks.get(pid, 0) + 1
+    
+    # 8. Track HTTP request
+    response_time = (time.time() - start_time) * 1000
+    analytics_data.track_http_request(
+        method="GET",
+        endpoint="/doc_details",
+        status_code=200,
+        response_time_ms=response_time,
+        session_id=session_id,
+        user_agent=user_agent,
+        ip_address=user_ip,
+        referrer=request.referrer
+    )
 
-    # 7. Render template with the document
+    # 9. Render template with the document
     return render_template("doc_details.html", 
                          doc=doc, 
                          page_title=doc.title,
@@ -274,6 +361,11 @@ def stats():
     Show simple statistics example. ### Replace with yourdashboard ###
     :return:
     """
+    # Track HTTP request
+    start_time = time.time()
+    session_id = session.get('session_id', 'anonymous')
+    user_agent = request.headers.get("User-Agent")
+    user_ip = request.remote_addr
 
     docs = []
     for doc_id in analytics_data.fact_clicks:
@@ -290,6 +382,20 @@ def stats():
 
     # simulate sort by ranking
     docs.sort(key=lambda doc: doc.count, reverse=True)
+    
+    # Track HTTP request
+    response_time = (time.time() - start_time) * 1000
+    analytics_data.track_http_request(
+        method="GET",
+        endpoint="/stats",
+        status_code=200,
+        response_time_ms=response_time,
+        session_id=session_id,
+        user_agent=user_agent,
+        ip_address=user_ip,
+        referrer=request.referrer
+    )
+    
     return render_template("stats.html", clicks_data=docs)
 
 
@@ -323,7 +429,7 @@ def analytics_dashboard():
     print("Loading analytics dashboard...")
     try:
         chart_data = analytics_data.get_chart_data_for_template()
-        print(f"Chart data loaded: {len(chart_data.get('popular_terms', []))} terms")
+        print(f"Chart data loaded successfully")
         return render_template('dashboard.html', 
                              page_title="Analytics Dashboard",
                              chart_data=chart_data)
@@ -336,8 +442,29 @@ def analytics_dashboard():
             doc = ClickedDoc(doc_id, d.description, analytics_data.fact_clicks[doc_id])
             visited_docs.append(doc)
         visited_docs.sort(key=lambda doc: doc.counter, reverse=True)
-        return render_template("dashboard.html", visited_docs=visited_docs)
-
+        
+        # Crear chart_data bàsic per al template
+        chart_data = {
+            "stats": {
+                "total_queries": 0,
+                "total_clicks": 0,
+                "click_through_rate": 0,
+                "avg_session_duration_sec": 0
+            },
+            "popular_queries": [],
+            "popular_documents": [],
+            "popular_terms": [],
+            "user_context_stats": {
+                "browsers": {},
+                "devices": {},
+                "hourly_activity": [0]*24
+            }
+        }
+        
+        return render_template("dashboard.html", 
+                             visited_docs=visited_docs,
+                             chart_data=chart_data,
+                             page_title="Analytics Dashboard")
 
 @app.route("/analytics/api/stats")
 def analytics_api_stats():
@@ -358,7 +485,20 @@ def analytics_track_click():
     if not query_id or not doc_id:
         return jsonify({"error": "Missing parameters"}), 400
     
-    click_id = analytics_data.track_click(query_id, doc_id, doc_title, ranking_position)
+    # Get user context
+    session_id = session.get('session_id', 'anonymous')
+    user_agent = request.headers.get("User-Agent")
+    user_ip = request.remote_addr
+    
+    click_id = analytics_data.track_click(
+        query_id=query_id,
+        doc_id=doc_id,
+        doc_title=doc_title,
+        ranking_position=ranking_position,
+        session_id=session_id,
+        user_agent=user_agent,
+        ip_address=user_ip
+    )
     return jsonify({"click_id": click_id, "status": "success"})
 
 
@@ -366,27 +506,28 @@ def analytics_track_click():
 def analytics_chart_data():
     """Get chart data in Chart.js format"""
     chart_data = analytics_data.get_chart_data_for_template()
+    user_context_stats = chart_data.get("user_context_stats", {})
     
     # Format for Chart.js
     response_data = {
         "browser_data": {
-            "labels": list(chart_data.get("browser_stats", {}).keys()),
-            "data": list(chart_data.get("browser_stats", {}).values()),
+            "labels": list(user_context_stats.get("browsers", {}).keys()),
+            "data": list(user_context_stats.get("browsers", {}).values()),
             "backgroundColor": ["#FF6384", "#36A2EB", "#FFCE56", "#4BC0C0", "#9966FF"]
         },
         "device_data": {
-            "labels": list(chart_data.get("device_stats", {}).keys()),
-            "data": list(chart_data.get("device_stats", {}).values()),
+            "labels": list(user_context_stats.get("devices", {}).keys()),
+            "data": list(user_context_stats.get("devices", {}).values()),
             "backgroundColor": ["#36A2EB", "#FF6384", "#FFCE56"]
         },
         "hourly_data": {
             "labels": [f"{h:02d}:00" for h in range(24)],
-            "data": chart_data.get("hourly_activity", [0]*24)
+            "data": user_context_stats.get("hourly_activity", [0]*24)
         },
-        "rank_data": {
-            "labels": [item["rank"] for item in chart_data.get("click_distribution_by_rank", [])],
-            "data": [item["clicks"] for item in chart_data.get("click_distribution_by_rank", [])],
-            "backgroundColor": ["#FF6384", "#36A2EB", "#FFCE56", "#4BC0C0", "#9966FF", "#FF9F40"]
+        "mission_data": {
+            "labels": list(user_context_stats.get("mission_distribution", {}).keys()),
+            "data": list(user_context_stats.get("mission_distribution", {}).values()),
+            "backgroundColor": ["#FF6384", "#36A2EB", "#FFCE56", "#4BC0C0"]
         }
     }
     return jsonify(response_data)
@@ -414,13 +555,34 @@ def get_current_stats():
 @app.route("/health", methods=["GET"])
 def health_check():
     """Health check endpoint"""
-    return jsonify({
+    # Track this request too
+    start_time = time.time()
+    session_id = session.get('session_id', 'anonymous')
+    user_agent = request.headers.get("User-Agent")
+    user_ip = request.remote_addr
+    
+    health_data = {
         "status": "healthy",
         "corpus_size": len(corpus),
         "sessions_count": len(analytics_data.sessions),
         "queries_count": len(analytics_data.queries),
-        "clicks_count": len(analytics_data.clicks)
-    })
+        "clicks_count": len(analytics_data.clicks),
+        "http_requests_count": len(analytics_data.http_requests)
+    }
+    
+    # Track HTTP request
+    response_time = (time.time() - start_time) * 1000
+    analytics_data.track_http_request(
+        method="GET",
+        endpoint="/health",
+        status_code=200,
+        response_time_ms=response_time,
+        session_id=session_id,
+        user_agent=user_agent,
+        ip_address=user_ip
+    )
+    
+    return jsonify(health_data)
 
 
 def _detect_mission_type(query: str, results: list) -> MissionType:

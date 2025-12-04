@@ -7,7 +7,7 @@ from collections import defaultdict, Counter
 import uuid
 import pandas as pd
 import altair as alt
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from enum import Enum
 
 class DeviceType(Enum):
@@ -22,6 +22,20 @@ class MissionType(Enum):
     COMPARISON = "comparison"
 
 @dataclass
+class HTTPRequest:
+    """Store HTTP request data"""
+    request_id: str
+    timestamp: datetime
+    method: str
+    endpoint: str
+    status_code: int = 200
+    response_time_ms: float = 0.0
+    user_agent: Optional[str] = None
+    ip_address: Optional[str] = None
+    referrer: Optional[str] = None
+    session_id: Optional[str] = None
+
+@dataclass
 class QueryAnalytics:
     query_id: str
     query_text: str
@@ -31,6 +45,8 @@ class QueryAnalytics:
     session_id: str
     filters_applied: Dict[str, Any] = None
     results_returned: int = 0
+    algorithm_used: str = "tfidf"
+    search_time_ms: float = 0.0
     
 @dataclass
 class ClickAnalytics:
@@ -43,6 +59,9 @@ class ClickAnalytics:
     dwell_start: Optional[datetime] = None
     dwell_end: Optional[datetime] = None
     dwell_time_ms: Optional[int] = None
+    session_id: Optional[str] = None
+    user_agent: Optional[str] = None
+    ip_address: Optional[str] = None
 
 @dataclass
 class SessionAnalytics:
@@ -57,6 +76,8 @@ class SessionAnalytics:
     mission_type: Optional[MissionType] = None
     queries_count: int = 0
     clicks_count: int = 0
+    total_dwell_time_ms: int = 0
+    page_views: int = 0
 
 class AnalyticsData:
     """
@@ -64,7 +85,12 @@ class AnalyticsData:
     """
     
     def __init__(self):
-        # Existing click tracking
+        # HTTP Requests tracking
+        self.http_requests: Dict[str, HTTPRequest] = {}
+        self.requests_by_session: Dict[str, List[str]] = defaultdict(list)
+        self.requests_by_endpoint: Dict[str, List[str]] = defaultdict(list)
+        
+        # Existing click tracking (legacy)
         self.fact_clicks = dict([])
         
         # Enhanced analytics storage
@@ -83,7 +109,7 @@ class AnalyticsData:
         self.doc_popularity = Counter()
         self.session_times = []
         
-        # User agent parsing (simplified)
+        # User agent parsing
         self.browser_stats = Counter()
         self.os_stats = Counter()
         self.device_stats = Counter()
@@ -91,61 +117,99 @@ class AnalyticsData:
         # Time-based data
         self.hourly_activity = [0] * 24
         self.daily_activity = [0] * 7  # 0=Monday, 6=Sunday
+        self.monthly_activity = [0] * 12
         
         # Mission tracking
         self.missions_by_session: Dict[str, str] = {}  # session_id -> mission_type
+        
+        # Performance metrics
+        self.response_times = []
+        self.search_times = []
     
-    def start_session(self, user_agent: Optional[str] = None, user_ip: Optional[str] = None) -> str:
-        """Start a new user session"""
-        session_id = str(uuid.uuid4())
+    # ========== 1. HTTP REQUEST TRACKING ==========
+    
+    def track_http_request(self, method: str, endpoint: str, status_code: int = 200,
+                          response_time_ms: float = 0.0, session_id: Optional[str] = None,
+                          user_agent: Optional[str] = None, ip_address: Optional[str] = None,
+                          referrer: Optional[str] = None) -> str:
+        """Track an HTTP request"""
+        request_id = str(uuid.uuid4())
         
-        # Utilitza valors per defecte si no es proporcionen
-        if user_agent is None:
-            user_agent = "Unknown"
-        if user_ip is None:
-            user_ip = "0.0.0.0"
-        
-        # Parse browser info from user agent
-        browser = self._parse_browser(user_agent)
-        os = self._parse_os(user_agent)
-        device_type = self._parse_device(user_agent)
-        
-        # Update statistics
-        self.browser_stats[browser] += 1
-        self.os_stats[os] += 1
-        self.device_stats[device_type.value] += 1
-        
-        # Create session object (CORREGIT: utilitza SessionAnalytics, no diccionari)
-        session = SessionAnalytics(
-            session_id=session_id,
-            start_time=datetime.now(),
+        request = HTTPRequest(
+            request_id=request_id,
+            timestamp=datetime.now(),
+            method=method,
+            endpoint=endpoint,
+            status_code=status_code,
+            response_time_ms=response_time_ms,
             user_agent=user_agent,
-            browser=browser,
-            os=os,
-            device_type=device_type,
-            ip_address=user_ip
+            ip_address=ip_address,
+            referrer=referrer,
+            session_id=session_id
         )
         
-        self.sessions[session_id] = session
-        return session_id
+        self.http_requests[request_id] = request
+        
+        # Index by session
+        if session_id:
+            self.requests_by_session[session_id].append(request_id)
+        
+        # Index by endpoint
+        self.requests_by_endpoint[endpoint].append(request_id)
+        
+        # Track performance
+        self.response_times.append(response_time_ms)
+        
+        # Track page views for session
+        if session_id and session_id in self.sessions:
+            self.sessions[session_id].page_views += 1
+        
+        return request_id
     
-    def end_session(self, session_id: str):
-        """End a user session"""
-        if session_id in self.sessions:
-            session = self.sessions[session_id]
-            session.end_time = datetime.now()
-            session_duration = (session.end_time - session.start_time).total_seconds()
-            self.session_times.append(session_duration)
+    def track_click(self, query_id: str, doc_id: str, doc_title: str, 
+                   ranking_position: int, session_id: Optional[str] = None,
+                   user_agent: Optional[str] = None, ip_address: Optional[str] = None) -> str:
+        """Track a click on a search result"""
+        click_id = str(uuid.uuid4())
+        
+        click = ClickAnalytics(
+            click_id=click_id,
+            query_id=query_id,
+            doc_id=doc_id,
+            doc_title=doc_title,
+            ranking_position=ranking_position,
+            click_time=datetime.now(),
+            session_id=session_id,
+            user_agent=user_agent,
+            ip_address=ip_address
+        )
+        
+        self.clicks[click_id] = click
+        self.clicks_by_query[query_id].append(click_id)
+        self.clicks_by_doc[doc_id].append(click_id)
+        
+        # Update click counters
+        self.fact_clicks[doc_id] = self.fact_clicks.get(doc_id, 0) + 1
+        self.doc_popularity[doc_id] += 1
+        
+        # Update session click count
+        if session_id and session_id in self.sessions:
+            self.sessions[session_id].clicks_count += 1
+        
+        return click_id
+    
+    # ========== 2. QUERY TRACKING ==========
     
     def track_query(self, session_id: Optional[str] = None, query_text: str = "", 
-                   results_count: int = 0, 
+                   results_count: int = 0, search_time_ms: float = 0.0,
+                   algorithm_used: str = "tfidf", 
                    filters: Optional[Dict[str, Any]] = None) -> str:
-        """Track a search query"""
+        """Track a search query with detailed metrics"""
         if session_id is None or session_id not in self.sessions:
             # Auto-start session if not exists
             session_id = self.start_session(
                 user_agent="Unknown (auto-created)", 
-                user_ip="0.0.0.0"
+                ip_address="0.0.0.0"
             )
         
         query_id = str(uuid.uuid4())
@@ -159,7 +223,9 @@ class AnalyticsData:
             timestamp=datetime.now(),
             session_id=session_id,
             filters_applied=filters,
-            results_returned=results_count
+            results_returned=results_count,
+            algorithm_used=algorithm_used,
+            search_time_ms=search_time_ms
         )
         
         self.queries[query_id] = query
@@ -170,105 +236,115 @@ class AnalyticsData:
         for term in terms:
             self.query_terms_counter[term] += 1
         
-        # CORREGIT: Assegurar que la sessió és un objecte SessionAnalytics
+        # Update session query count
         if session_id in self.sessions:
-            session = self.sessions[session_id]
-            if isinstance(session, SessionAnalytics):
-                session.queries_count += 1
-            else:
-                # Si per alguna raó és un diccionari, convertir-lo
-                session = SessionAnalytics(
-                    session_id=session_id,
-                    start_time=datetime.now(),
-                    user_agent=session.get('user_agent', 'Unknown'),
-                    browser=session.get('browser', 'unknown'),
-                    os=session.get('os', 'unknown'),
-                    device_type=session.get('device_type', DeviceType.DESKTOP),
-                    ip_address=session.get('user_ip', '0.0.0.0'),
-                    queries_count=session.get('queries_count', 0) + 1
-                )
-                self.sessions[session_id] = session
+            self.sessions[session_id].queries_count += 1
         
-        # Track hourly/daily activity
-        hour = datetime.now().hour
-        weekday = datetime.now().weekday()
+        # Track search performance
+        if search_time_ms > 0:
+            self.search_times.append(search_time_ms)
+        
+        # Track hourly/daily/monthly activity
+        now = datetime.now()
+        hour = now.hour
+        weekday = now.weekday()
+        month = now.month - 1  # 0-based
+        
         self.hourly_activity[hour] += 1
         self.daily_activity[weekday] += 1
+        self.monthly_activity[month] += 1
         
         return query_id
     
-    def track_click(self, query_id: str, doc_id: str, doc_title: str, 
-                   ranking_position: int) -> str:
-        """Track a click on a search result"""
-        click_id = str(uuid.uuid4())
-        
-        click = ClickAnalytics(
-            click_id=click_id,
-            query_id=query_id,
-            doc_id=doc_id,
-            doc_title=doc_title,
-            ranking_position=ranking_position,
-            click_time=datetime.now()
-        )
-        
-        self.clicks[click_id] = click
-        self.clicks_by_query[query_id].append(click_id)
-        self.clicks_by_doc[doc_id].append(click_id)
-        
-        # Update click counters
-        self.fact_clicks[doc_id] = self.fact_clicks.get(doc_id, 0) + 1
-        self.doc_popularity[doc_id] += 1
-        
-        # Update session click count
-        query = self.queries.get(query_id)
-        if query and query.session_id in self.sessions:
-            session = self.sessions[query.session_id]
-            if isinstance(session, SessionAnalytics):
-                session.clicks_count += 1
-            else:
-                # Convertir diccionari a SessionAnalytics si cal
-                session_obj = SessionAnalytics(
-                    session_id=query.session_id,
-                    start_time=datetime.now(),
-                    user_agent=session.get('user_agent', 'Unknown'),
-                    browser=session.get('browser', 'unknown'),
-                    os=session.get('os', 'unknown'),
-                    device_type=session.get('device_type', DeviceType.DESKTOP),
-                    ip_address=session.get('user_ip', '0.0.0.0'),
-                    queries_count=session.get('queries_count', 0),
-                    clicks_count=session.get('clicks_count', 0) + 1
-                )
-                self.sessions[query.session_id] = session_obj
-        
-        return click_id
+    # ========== 3. RESULTS/DOCUMENTS TRACKING ==========
+    
+    def start_dwell_time(self, click_id: str):
+        """Start tracking dwell time for a click"""
+        if click_id in self.clicks:
+            self.clicks[click_id].dwell_start = datetime.now()
     
     def track_dwell_time(self, click_id: str, dwell_time_ms: int):
         """Track dwell time for a click"""
         if click_id in self.clicks:
             self.clicks[click_id].dwell_time_ms = dwell_time_ms
             self.clicks[click_id].dwell_end = datetime.now()
+            
+            # Update session total dwell time
+            click = self.clicks[click_id]
+            if click.session_id and click.session_id in self.sessions:
+                self.sessions[click.session_id].total_dwell_time_ms += dwell_time_ms
     
-    def start_dwell_time(self, click_id: str):
-        """Start tracking dwell time"""
-        if click_id in self.clicks:
-            self.clicks[click_id].dwell_start = datetime.now()
+    def get_document_stats(self, doc_id: str) -> Dict[str, Any]:
+        """Get statistics for a specific document"""
+        if doc_id not in self.clicks_by_doc:
+            return {"clicks": 0, "queries": [], "avg_position": 0}
+        
+        clicks = self.clicks_by_doc[doc_id]
+        query_ids = set()
+        positions = []
+        dwell_times = []
+        
+        for click_id in clicks:
+            click = self.clicks[click_id]
+            query_ids.add(click.query_id)
+            positions.append(click.ranking_position)
+            if click.dwell_time_ms:
+                dwell_times.append(click.dwell_time_ms)
+        
+        return {
+            "clicks": len(clicks),
+            "query_count": len(query_ids),
+            "avg_ranking_position": round(sum(positions) / len(positions), 2) if positions else 0,
+            "avg_dwell_time_ms": round(sum(dwell_times) / len(dwell_times)) if dwell_times else 0,
+            "queries": list(query_ids)[:10]  # Top 10 queries
+        }
+    
+    # ========== 4. USER CONTEXT/ VISITOR TRACKING ==========
+    
+    def start_session(self, user_agent: Optional[str] = None, ip_address: Optional[str] = None) -> str:
+        """Start a new user session"""
+        session_id = str(uuid.uuid4())
+        
+        # Parse user agent
+        browser = self._parse_browser(user_agent) if user_agent else "unknown"
+        os = self._parse_os(user_agent) if user_agent else "unknown"
+        device_type = self._parse_device(user_agent) if user_agent else DeviceType.DESKTOP
+        
+        # Update statistics
+        self.browser_stats[browser] += 1
+        self.os_stats[os] += 1
+        self.device_stats[device_type.value] += 1
+        
+        # Create session object
+        session = SessionAnalytics(
+            session_id=session_id,
+            start_time=datetime.now(),
+            user_agent=user_agent,
+            browser=browser,
+            os=os,
+            device_type=device_type,
+            ip_address=ip_address
+        )
+        
+        self.sessions[session_id] = session
+        return session_id
+    
+    def end_session(self, session_id: str):
+        """End a user session"""
+        if session_id in self.sessions:
+            session = self.sessions[session_id]
+            session.end_time = datetime.now()
+            session_duration = (session.end_time - session.start_time).total_seconds()
+            self.session_times.append(session_duration)
     
     def set_mission_type(self, session_id: str, mission_type: MissionType):
         """Set mission type for a session"""
         if session_id in self.sessions:
-            session = self.sessions[session_id]
-            if isinstance(session, SessionAnalytics):
-                session.mission_type = mission_type
+            self.sessions[session_id].mission_type = mission_type
             self.missions_by_session[session_id] = mission_type.value
     
-    def save_query_terms(self, terms: str) -> int:
-        """Legacy method for compatibility"""
-        term_list = terms.split()
-        for term in term_list:
-            self.query_terms_counter[term] += 1
-        return len(term_list)
+    # ========== HELPER METHODS ==========
     
-    # Helper methods for parsing
     def _parse_browser(self, user_agent: Optional[str]) -> str:
         if not user_agent:
             return "unknown"
@@ -283,6 +359,8 @@ class AnalyticsData:
             return "edge"
         elif "opera" in ua_lower:
             return "opera"
+        elif "msie" in ua_lower or "trident" in ua_lower:
+            return "ie"
         return "other"
     
     def _parse_os(self, user_agent: Optional[str]) -> str:
@@ -299,6 +377,10 @@ class AnalyticsData:
             return "android"
         elif "ios" in ua_lower or "iphone" in ua_lower:
             return "ios"
+        elif "ubuntu" in ua_lower:
+            return "ubuntu"
+        elif "fedora" in ua_lower:
+            return "fedora"
         return "other"
     
     def _parse_device(self, user_agent: Optional[str]) -> Optional[DeviceType]:
@@ -313,7 +395,142 @@ class AnalyticsData:
             return DeviceType.DESKTOP
         return DeviceType.DESKTOP
     
-    # Analytics Methods
+    # ========== ANALYTICS METHODS ==========
+    
+    def save_query_terms(self, terms: str) -> int:
+        """Legacy method for compatibility"""
+        term_list = terms.split()
+        for term in term_list:
+            self.query_terms_counter[term] += 1
+        return len(term_list)
+    
+    def get_http_stats(self) -> Dict[str, Any]:
+        """Get HTTP request statistics"""
+        if not self.http_requests:
+            return {
+                "total_requests": 0,
+                "avg_response_time": 0,
+                "endpoint_stats": {},
+                "status_codes": {}
+            }
+        
+        # Count status codes
+        status_codes = Counter()
+        endpoint_stats = {}
+        
+        for request in self.http_requests.values():
+            status_codes[request.status_code] += 1
+            
+            if request.endpoint not in endpoint_stats:
+                endpoint_stats[request.endpoint] = {
+                    "count": 0,
+                    "avg_response_time": 0,
+                    "total_time": 0
+                }
+            
+            endpoint_stats[request.endpoint]["count"] += 1
+            endpoint_stats[request.endpoint]["total_time"] += request.response_time_ms
+        
+        # Calculate averages
+        for endpoint in endpoint_stats:
+            if endpoint_stats[endpoint]["count"] > 0:
+                endpoint_stats[endpoint]["avg_response_time"] = round(
+                    endpoint_stats[endpoint]["total_time"] / endpoint_stats[endpoint]["count"], 2
+                )
+        
+        return {
+            "total_requests": len(self.http_requests),
+            "avg_response_time": round(sum(self.response_times) / len(self.response_times), 2) if self.response_times else 0,
+            "endpoint_stats": endpoint_stats,
+            "status_codes": dict(status_codes.most_common(10))
+        }
+    
+    def get_query_stats(self) -> Dict[str, Any]:
+        """Get query statistics"""
+        if not self.queries:
+            return {
+                "total_queries": 0,
+                "avg_terms": 0,
+                "avg_search_time": 0,
+                "algorithm_distribution": {}
+            }
+        
+        total_terms = sum(q.term_count for q in self.queries.values())
+        algorithm_dist = Counter(q.algorithm_used for q in self.queries.values())
+        
+        return {
+            "total_queries": len(self.queries),
+            "avg_terms": round(total_terms / len(self.queries), 2),
+            "avg_search_time": round(sum(self.search_times) / len(self.search_times), 2) if self.search_times else 0,
+            "algorithm_distribution": dict(algorithm_dist.most_common()),
+            "unique_terms": len(self.query_terms_counter)
+        }
+    
+    def get_document_stats_summary(self) -> Dict[str, Any]:
+        """Get document statistics summary"""
+        if not self.clicks:
+            return {
+                "total_clicks": 0,
+                "unique_documents": 0,
+                "avg_dwell_time": 0,
+                "click_distribution": {}
+            }
+        
+        dwell_times = [c.dwell_time_ms for c in self.clicks.values() if c.dwell_time_ms]
+        
+        # Click distribution by hour
+        click_dist = [0] * 24
+        for click in self.clicks.values():
+            hour = click.click_time.hour
+            click_dist[hour] += 1
+        
+        return {
+            "total_clicks": len(self.clicks),
+            "unique_documents": len(self.clicks_by_doc),
+            "avg_dwell_time": round(sum(dwell_times) / len(dwell_times)) if dwell_times else 0,
+            "click_distribution_by_hour": click_dist,
+            "top_documents": self.get_popular_documents(10)
+        }
+    
+    def get_user_context_stats(self) -> Dict[str, Any]:
+        """Get user context statistics"""
+        return {
+            "browsers": dict(self.browser_stats.most_common()),
+            "operating_systems": dict(self.os_stats.most_common()),
+            "devices": dict(self.device_stats.most_common()),
+            "hourly_activity": self.hourly_activity,
+            "daily_activity": self.daily_activity,
+            "monthly_activity": self.monthly_activity,
+            "mission_distribution": dict(Counter(self.missions_by_session.values()).most_common())
+        }
+    
+    def get_session_stats(self) -> Dict[str, Any]:
+        """Get session statistics"""
+        if not self.sessions:
+            return {
+                "total_sessions": 0,
+                "avg_duration": 0,
+                "avg_queries": 0,
+                "avg_clicks": 0,
+                "avg_page_views": 0
+            }
+        
+        total_queries = sum(s.queries_count for s in self.sessions.values())
+        total_clicks = sum(s.clicks_count for s in self.sessions.values())
+        total_page_views = sum(s.page_views for s in self.sessions.values())
+        total_dwell_time = sum(s.total_dwell_time_ms for s in self.sessions.values())
+        
+        avg_duration = sum(self.session_times) / len(self.session_times) if self.session_times else 0
+        
+        return {
+            "total_sessions": len(self.sessions),
+            "avg_session_duration_sec": round(avg_duration, 2),
+            "avg_queries_per_session": round(total_queries / len(self.sessions), 2),
+            "avg_clicks_per_session": round(total_clicks / len(self.sessions), 2),
+            "avg_page_views_per_session": round(total_page_views / len(self.sessions), 2),
+            "avg_dwell_time_per_session_ms": round(total_dwell_time / len(self.sessions), 2) if self.sessions else 0
+        }
+    
     def get_popular_queries(self, limit: int = 10) -> List[Tuple[str, int]]:
         """Get most popular queries"""
         return self.query_popularity.most_common(limit)
@@ -325,44 +542,6 @@ class AnalyticsData:
     def get_popular_terms(self, limit: int = 10) -> List[Tuple[str, int]]:
         """Get most popular search terms"""
         return self.query_terms_counter.most_common(limit)
-    
-    def get_session_stats(self) -> Dict[str, Any]:
-        """Get session statistics"""
-        if not self.sessions:
-            return {
-                "avg_duration": 0, 
-                "total_sessions": 0,
-                "total_queries": 0,
-                "total_clicks": 0,
-                "avg_queries_per_session": 0,
-                "avg_clicks_per_session": 0
-            }
-        
-        total_queries = 0
-        total_clicks = 0
-        
-        for session in self.sessions.values():
-            if isinstance(session, SessionAnalytics):
-                total_queries += session.queries_count
-                total_clicks += session.clicks_count
-            else:
-                # Si és un diccionari (per compatibilitat)
-                total_queries += session.get('queries_count', 0)
-                total_clicks += session.get('clicks_count', 0)
-        
-        if not self.session_times:
-            avg_duration = 0
-        else:
-            avg_duration = sum(self.session_times) / len(self.session_times)
-        
-        return {
-            "total_sessions": len(self.sessions),
-            "avg_session_duration_sec": round(avg_duration, 2),
-            "total_queries": total_queries,
-            "total_clicks": total_clicks,
-            "avg_queries_per_session": round(total_queries / len(self.sessions), 2) if self.sessions else 0,
-            "avg_clicks_per_session": round(total_clicks / len(self.sessions), 2) if self.sessions else 0
-        }
     
     def get_click_through_rate(self) -> float:
         """Calculate click-through rate"""
@@ -379,23 +558,8 @@ class AnalyticsData:
         positions = [click.ranking_position for click in self.clicks.values()]
         return round(sum(positions) / len(positions), 2)
     
-    def get_dwell_time_stats(self) -> Dict[str, float]:
-        """Get dwell time statistics"""
-        dwell_times = [
-            click.dwell_time_ms for click in self.clicks.values() 
-            if click.dwell_time_ms is not None
-        ]
-        
-        if not dwell_times:
-            return {"avg_ms": 0, "min_ms": 0, "max_ms": 0}
-        
-        return {
-            "avg_ms": round(sum(dwell_times) / len(dwell_times)),
-            "min_ms": min(dwell_times),
-            "max_ms": max(dwell_times)
-        }
+    # ========== VISUALIZATION METHODS ==========
     
-    # Visualization Methods
     def plot_number_of_views(self):
         """Plot number of views per document"""
         data = [
@@ -413,56 +577,21 @@ class AnalyticsData:
     
     def get_chart_data_for_template(self) -> Dict[str, Any]:
         """Get all data needed for the dashboard template"""
-        session_stats = self.get_session_stats()
-        dwell_stats = self.get_dwell_time_stats()
-        
         return {
-            "stats": {
-                "total_queries": len(self.queries),
-                "total_clicks": len(self.clicks),
-                "total_sessions": len(self.sessions),
-                "click_through_rate": self.get_click_through_rate(),
-                "avg_ranking_position": self.get_avg_ranking_position(),
-                **session_stats,
-                **dwell_stats
-            },
+            "http_stats": self.get_http_stats(),
+            "query_stats": self.get_query_stats(),
+            "document_stats": self.get_document_stats_summary(),
+            "user_context_stats": self.get_user_context_stats(),
+            "session_stats": self.get_session_stats(),
             "popular_queries": self.get_popular_queries(10),
             "popular_documents": self.get_popular_documents(10),
             "popular_terms": self.get_popular_terms(15),
-            "browser_stats": dict(self.browser_stats.most_common()),
-            "os_stats": dict(self.os_stats.most_common()),
-            "device_stats": dict(self.device_stats.most_common()),
-            "hourly_activity": self.hourly_activity,
-            "daily_activity": self.daily_activity,
-            "click_distribution_by_rank": self._get_click_distribution_by_rank()
+            "click_through_rate": self.get_click_through_rate(),
+            "avg_ranking_position": self.get_avg_ranking_position()
         }
-    
-    def _get_click_distribution_by_rank(self) -> List[Dict[str, Any]]:
-        """Get distribution of clicks by ranking position"""
-        if not self.clicks:
-            return []
-        
-        positions = [click.ranking_position for click in self.clicks.values()]
-        position_counts = Counter(positions)
-        
-        # Group positions 6-10 together
-        distribution = []
-        for rank in sorted(position_counts.keys()):
-            if rank <= 5:
-                distribution.append({"rank": f"#{rank}", "clicks": position_counts[rank]})
-        
-        # Add grouped 6-10 if any
-        clicks_6_10 = sum(count for rank, count in position_counts.items() if 6 <= rank <= 10)
-        if clicks_6_10 > 0:
-            distribution.append({"rank": "#6-10", "clicks": clicks_6_10})
-        
-        # Add 11+ if any
-        clicks_11_plus = sum(count for rank, count in position_counts.items() if rank > 10)
-        if clicks_11_plus > 0:
-            distribution.append({"rank": "#11+", "clicks": clicks_11_plus})
-        
-        return distribution
 
+
+# ========== CLICKEDDOC CLASS (LEGACY COMPATIBILITY) ==========
 
 class ClickedDoc:
     def __init__(self, doc_id, description, counter):

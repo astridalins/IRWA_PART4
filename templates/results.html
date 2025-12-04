@@ -163,6 +163,24 @@ window.addEventListener('beforeunload', function() {
         })
     });
 });
+
+    // Function to update analytics data after search
+    function updateAnalytics() {
+        fetch('/api/analytics/current-stats')
+            .then(response => response.json())
+            .then(data => {
+                // Example: update stats section or charts
+                // You can customize this to update your dashboard or stats elements
+                if (document.getElementById('analytics-stats')) {
+                    document.getElementById('analytics-stats').textContent = JSON.stringify(data, null, 2);
+                }
+                // If using Chart.js or other chart libraries, update the chart here
+                // Example: updateChart(data);
+            });
+    }
+    
+    // Call updateAnalytics after page loads (i.e., after search)
+    window.addEventListener('DOMContentLoaded', updateAnalytics);
 </script>
 
 <style>

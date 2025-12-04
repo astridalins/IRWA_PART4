@@ -14,11 +14,22 @@
 <hr>
 
 {% for item in results_list %}
-<div class="card mb-4 p-4 shadow-sm">
+<div class="card mb-4 p-4 shadow-sm result-item"
+     data-doc-id="{{ item.pid }}"
+     data-doc-title="{{ item.title }}"
+     data-ranking="{{ loop.index }}"
+     data-query-id="{{ query_id }}">
 
-    <!-- Title -->
+    <!-- Title with click tracking -->
     <h3>
-        <a href="{{ item.url }}" style="text-decoration:none;">
+        <a href="{{ item.url }}" 
+           class="document-link"
+           onclick="trackClick(this, event)"
+           data-doc-id="{{ item.pid }}"
+           data-doc-title="{{ item.title }}"
+           data-ranking="{{ loop.index }}"
+           data-query-id="{{ query_id }}"
+           style="text-decoration:none; color: #0066cc;">
             {{ item.title }}
         </a>
     </h3>
@@ -61,4 +72,126 @@
 </div>
 {% endfor %}
 
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Track clicks on search results
+function trackClick(element, event) {
+    event.preventDefault(); // Prevent immediate navigation
+    
+    const docId = element.dataset.docId;
+    const docTitle = element.dataset.docTitle;
+    const rankingPosition = parseInt(element.dataset.ranking);
+    const queryId = element.dataset.queryId || '{{ query_id }}';
+    
+    console.log('Tracking click:', { docId, docTitle, rankingPosition, queryId });
+    
+    // Track click via AJAX
+    fetch('/analytics/api/track-click', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            query_id: queryId,
+            doc_id: docId,
+            doc_title: docTitle,
+            ranking_position: rankingPosition
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Click tracked successfully:', data);
+        
+        // Also track with legacy analytics
+        fetch('/doc_details?pid=' + docId + '&query_id=' + queryId + '&ranking_position=' + rankingPosition, {
+            method: 'GET'
+        })
+        .then(() => {
+            // After tracking, navigate to the document
+            window.location.href = element.href;
+        })
+        .catch(err => {
+            console.error('Error with legacy tracking:', err);
+            window.location.href = element.href;
+        });
+    })
+    .catch(error => {
+        console.error('Error tracking click:', error);
+        // Still navigate even if tracking fails
+        window.location.href = element.href;
+    });
+    
+    return false;
+}
+
+// Add click listeners to all document links
+document.addEventListener('DOMContentLoaded', function() {
+    const links = document.querySelectorAll('.document-link');
+    links.forEach(link => {
+        link.addEventListener('click', function(e) {
+            trackClick(this, e);
+        });
+    });
+    
+    // Also track clicks on the entire result card
+    const resultCards = document.querySelectorAll('.result-item');
+    resultCards.forEach(card => {
+        card.addEventListener('click', function(e) {
+            // Don't trigger if clicking on a link (already handled)
+            if (e.target.tagName === 'A' || e.target.closest('a')) {
+                return;
+            }
+            
+            // Find the document link within this card
+            const link = this.querySelector('.document-link');
+            if (link) {
+                trackClick(link, e);
+            }
+        });
+    });
+});
+
+// Track when user leaves the results page
+window.addEventListener('beforeunload', function() {
+    // Track session activity
+    fetch('/analytics/api/track-page-leave', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            page: 'results',
+            query: '{{ request.args.get("query", "") }}'
+        })
+    });
+});
+</script>
+
+<style>
+.result-item {
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.result-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+}
+
+.document-link {
+    position: relative;
+}
+
+.document-link:hover::after {
+    content: '📊 Tracking click...';
+    position: absolute;
+    background: #4CAF50;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    top: -30px;
+    left: 0;
+    z-index: 1000;
+    white-space: nowrap;
+}
+</style>
 {% endblock %}

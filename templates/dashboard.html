@@ -6,24 +6,501 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.6.2/chart.min.js"
     integrity="sha512-tMabqarPtykgDtdtSqCL3uLVM0gS1ZkUAVhRFu1vSEFgvB73niFQWJuvviDyBGBH22Lcau4rHB5p2K2T0Xvr6Q=="
     crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+<style>
+    .dashboard-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 30px;
+    }
+    
+    .stat-card {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        text-align: center;
+    }
+    
+    .stat-value {
+        font-size: 2rem;
+        font-weight: bold;
+        color: #333;
+        margin: 10px 0;
+    }
+    
+    .stat-label {
+        color: #666;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    .charts-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+    }
+    
+    .chart-container {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    .chart-container h3 {
+        margin-top: 0;
+        color: #333;
+        border-bottom: 2px solid #f0f0f0;
+        padding-bottom: 10px;
+        margin-bottom: 20px;
+    }
+    
+    .tables-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        gap: 20px;
+    }
+    
+    .table-container {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    
+    .table-container h3 {
+        margin-top: 0;
+        color: #333;
+        border-bottom: 2px solid #f0f0f0;
+        padding-bottom: 10px;
+        margin-bottom: 15px;
+    }
+    
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    
+    th {
+        text-align: left;
+        padding: 10px;
+        background: #f8f9fa;
+        border-bottom: 2px solid #dee2e6;
+        font-weight: 600;
+    }
+    
+    td {
+        padding: 10px;
+        border-bottom: 1px solid #eee;
+    }
+    
+    tr:hover {
+        background: #f8f9fa;
+    }
+    
+    .badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-right: 5px;
+        margin-bottom: 5px;
+    }
+    
+    .refresh-btn {
+        background: #4CAF50;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 14px;
+        margin-bottom: 20px;
+        transition: background 0.3s;
+    }
+    
+    .refresh-btn:hover {
+        background: #45a049;
+    }
+    
+    @media (max-width: 768px) {
+        .charts-grid {
+            grid-template-columns: 1fr;
+        }
+        
+        .tables-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
 {% endblock %}
 
 {% block content %}
+<div class="dashboard-container">
+    <h1>{{ page_title }}</h1>
+    
+    <button class="refresh-btn" onclick="refreshData()">🔄 Refresh Data</button>
+    
+    <!-- Stats Grid -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">Total Queries</div>
+            <div class="stat-value" id="totalQueries">{{ chart_data.stats.total_queries }}</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-label">Total Clicks</div>
+            <div class="stat-value" id="totalClicks">{{ chart_data.stats.total_clicks }}</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-label">Click Through Rate</div>
+            <div class="stat-value" id="clickThroughRate">{{ chart_data.stats.click_through_rate }}%</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="stat-label">Avg Session Duration</div>
+            <div class="stat-value" id="avgSession">{{ chart_data.stats.avg_session_duration_sec }}s</div>
+        </div>
+    </div>
+    
+    <!-- Charts Grid -->
+    <div class="charts-grid">
+        <div class="chart-container">
+            <h3>🌐 Browser Distribution</h3>
+            <canvas id="browserChart" height="250"></canvas>
+        </div>
+        
+        <div class="chart-container">
+            <h3>📱 Device Distribution</h3>
+            <canvas id="deviceChart" height="250"></canvas>
+        </div>
+        
+        <div class="chart-container">
+            <h3>⏰ Search Activity by Hour</h3>
+            <canvas id="hourlyChart" height="250"></canvas>
+        </div>
+        
+        <div class="chart-container">
+            <h3>📊 Click Distribution by Rank</h3>
+            <canvas id="rankChart" height="250"></canvas>
+        </div>
+    </div>
+    
+    <!-- Legacy iframe (kept for compatibility) -->
+    <div class="chart-container">
+        <h3>📈 Document Views (Legacy)</h3>
+        <iframe src="/analytics/plot_number_of_views" width="100%" height="400" style="border: none;"></iframe>
+    </div>
+    
+    <!-- Tables Grid -->
+    <div class="tables-grid">
+        <div class="table-container">
+            <h3>🔍 Top Search Queries</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Query</th>
+                        <th>Count</th>
+                    </tr>
+                </thead>
+                <tbody id="queriesTable">
+                    {% for query, count in chart_data.popular_queries %}
+                    <tr>
+                        <td>{{ query }}</td>
+                        <td><strong>{{ count }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="table-container">
+            <h3>📄 Top Clicked Documents</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Document ID</th>
+                        <th>Clicks</th>
+                    </tr>
+                </thead>
+                <tbody id="docsTable">
+                    {% for doc_id, count in chart_data.popular_documents %}
+                    <tr>
+                        <td><code>{{ doc_id[:20] }}...</code></td>
+                        <td><strong>{{ count }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="table-container">
+            <h3>📝 Popular Search Terms</h3>
+            <div id="termsCloud">
+                {% for term, count in chart_data.popular_terms %}
+                <span class="badge term-badge" data-hue="{{ (loop.index * 50) % 360 }}">
+                    {{ term }} ({{ count }})
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <div class="table-container">
+            <h3>📊 Session Statistics</h3>
+            <table>
+                <tr>
+                    <td>Total Sessions:</td>
+                    <td><strong>{{ chart_data.stats.total_sessions }}</strong></td>
+                </tr>
+                <tr>
+                    <td>Avg Queries/Session:</td>
+                    <td><strong>{{ chart_data.stats.avg_queries_per_session }}</strong></td>
+                </tr>
+                <tr>
+                    <td>Avg Clicks/Session:</td>
+                    <td><strong>{{ chart_data.stats.avg_clicks_per_session }}</strong></td>
+                </tr>
+                <tr>
+                    <td>Avg Dwell Time:</td>
+                    <td><strong>{{ chart_data.stats.avg_ms }}ms</strong></td>
+                </tr>
+                <tr>
+                    <td>Avg Result Position:</td>
+                    <td><strong>{{ chart_data.stats.avg_ranking_position }}</strong></td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
 
-<!--
-    Examples of what to show in Dashboard:
+<script>
+    // Initialize charts
+    let browserChart, deviceChart, hourlyChart, rankChart;
+    
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeCharts();
+    });
+    
+    function initializeCharts() {
+        // Destroy existing charts if they exist
+        if (browserChart) browserChart.destroy();
+        if (deviceChart) deviceChart.destroy();
+        if (hourlyChart) hourlyChart.destroy();
+        if (rankChart) rankChart.destroy();
+        
+        // Fetch chart data
+        fetch('/analytics/api/chart-data')
+            .then(response => response.json())
+            .then(data => {
+                // Browser Chart
+                const browserCtx = document.getElementById('browserChart').getContext('2d');
+                browserChart = new Chart(browserCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: data.browser_data.labels,
+                        datasets: [{
+                            data: data.browser_data.data,
+                            backgroundColor: data.browser_data.backgroundColor,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'right'
+                            }
+                        }
+                    }
+                });
+                
+                // Device Chart
+                const deviceCtx = document.getElementById('deviceChart').getContext('2d');
+                deviceChart = new Chart(deviceCtx, {
+                    type: 'pie',
+                    data: {
+                        labels: data.device_data.labels,
+                        datasets: [{
+                            data: data.device_data.data,
+                            backgroundColor: data.device_data.backgroundColor,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'right'
+                            }
+                        }
+                    }
+                });
+                
+                // Hourly Chart
+                const hourlyCtx = document.getElementById('hourlyChart').getContext('2d');
+                hourlyChart = new Chart(hourlyCtx, {
+                    type: 'line',
+                    data: {
+                        labels: data.hourly_data.labels,
+                        datasets: [{
+                            label: 'Searches',
+                            data: data.hourly_data.data,
+                            borderColor: '#36A2EB',
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Number of Searches'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Hour of Day'
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                // Rank Chart
+                const rankCtx = document.getElementById('rankChart').getContext('2d');
+                rankChart = new Chart(rankCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: data.rank_data.labels,
+                        datasets: [{
+                            label: 'Clicks',
+                            data: data.rank_data.data,
+                            backgroundColor: data.rank_data.backgroundColor,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Number of Clicks'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Result Position'
+                                }
+                            }
+                        }
+                    }
+                });
+            });
+    }
+    
+    function refreshData() {
+        // Update stats
+        fetch('/analytics/api/stats')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('totalQueries').textContent = data.stats.total_queries;
+                document.getElementById('totalClicks').textContent = data.stats.total_clicks;
+                document.getElementById('clickThroughRate').textContent = data.stats.click_through_rate + '%';
+                document.getElementById('avgSession').textContent = data.stats.avg_session_duration_sec + 's';
+                
+                // Update queries table
+                let queriesHtml = '';
+                data.popular_queries.forEach(([query, count]) => {
+                    queriesHtml += `<tr><td>${query}</td><td><strong>${count}</strong></td></tr>`;
+                });
+                document.getElementById('queriesTable').innerHTML = queriesHtml;
+                
+                // Update docs table
+                let docsHtml = '';
+                data.popular_documents.forEach(([doc_id, count]) => {
+                    docsHtml += `<tr><td><code>${doc_id.substring(0, 20)}...</code></td><td><strong>${count}</strong></td></tr>`;
+                });
+                document.getElementById('docsTable').innerHTML = docsHtml;
+                
+                // Update terms cloud
+                let termsHtml = '';
+                data.popular_terms.forEach(([term, count], index) => {
+                    const hue = (index * 50) % 360;
+                    termsHtml += `<span class="badge" style="background-color: hsl(${hue}, 70%, 80%)">
+                        ${term} (${count})
+                    </span>`;
+                });
+                document.getElementById('termsCloud').innerHTML = termsHtml;
+            });
+        
+        // Reinitialize charts
+        initializeCharts();
+        
+        // Show notification
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            z-index: 1000;
+            animation: fadeInOut 2s;
+        `;
+        notification.textContent = 'Data refreshed!';
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            document.body.removeChild(notification);
+        }, 2000);
+    }
+    
+    // Auto-refresh every 60 seconds
+    setInterval(refreshData, 60000);
+</script>
 
-    - Ranking of visited documents (from results page)
-    - Visitor's preferred browsers
-    - Visitor's city (from IP)
-    - preferred queries ranking
-    - preferred terms
-    - etc.
+<script>
+    // Apply HSL background to term badges (avoid inline CSS with Jinja braces to satisfy CSS linters)
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('.term-badge').forEach(function(el, idx) {
+            var hue = el.getAttribute('data-hue');
+            if (!hue) {
+                hue = (idx * 50) % 360;
+            }
+            el.style.backgroundColor = 'hsl(' + hue + ', 70%, 80%)';
+        });
+    });
+</script>
 
-    -->
-
-<h3>Dashboard</h3>
-<iframe src="/plot_number_of_views" width="600" height="400" style="border: none;"></iframe>
-
-
+<style>
+    @keyframes fadeInOut {
+        0% { opacity: 0; transform: translateY(-10px); }
+        20% { opacity: 1; transform: translateY(0); }
+        80% { opacity: 1; transform: translateY(0); }
+        100% { opacity: 0; transform: translateY(-10px); }
+    }
+</style>
 {% endblock %}
